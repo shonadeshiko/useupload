@@ -1,0 +1,47 @@
+{
+  "run": "tokyo23_33300_chmv2_20261101",
+  "crs_analysis": "EPSG:6677",
+  "canopy_height_m": 3,
+  "mask_building_footprints": true,
+  "treetop_gaussian_sigma_m": 1,
+  "treetop_window_m": 5,
+  "rule3_trees": 3,
+  "rule3_radius_m": 30,
+  "rule3_line_of_sight": "外周上5m間隔の点から引く視線のうち、建物を通らないものが1本でもある樹頂点を数える(建物高さは考慮しない)",
+  "rule30_share": 0.3,
+  "rule30_radius_m": 250,
+  "rule300_distance_m": 300,
+  "rule300_distance_type": "建物重心からの直線距離",
+  "rule300_target": "公園(Shonadeshiko 2026-11-02)",
+  "rule300_park_ha": 0.5,
+  "rule300_park_source": "東京都 緑のオープンデータ+都外は OSM",
+  "forest_patch_ha": 0.5,
+  "forest_patch_connectivity": 4,
+  "residential_rule": "lu",
+  "residential_lu_codes": [
+    123,
+    131,
+    132,
+    142
+  ],
+  "nonresidential_subtypes": [
+    "agricultural",
+    "civic",
+    "commercial",
+    "education",
+    "entertainment",
+    "industrial",
+    "medical",
+    "military",
+    "religious",
+    "service",
+    "transportation"
+  ],
+  "min_footprint_m2": 20,
+  "h3_res": [
+    9,
+    10,
+    11
+  ],
+  "publish_min_buildings": 5
+}
