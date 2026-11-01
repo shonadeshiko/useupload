@@ -57,9 +57,10 @@
     <ul>
       <li>3: 建物外周から30m以内に、他の建物に遮られない樹頂点が3本以上</li>
       <li>30: 建物から半径250mの樹冠率(樹高3m以上)が30%以上</li>
-      <li>300: 建物から直線300m以内に0.5ha以上の公園</li>
+      <li>300: 建物から道路で300m以内に0.5ha以上の公園(高速・有料・建設中の道路を除く)</li>
       <li>樹高: Meta / WRI CHMv2(CC BY 4.0)</li>
       <li>建物: Overture Maps(由来により CDLA Permissive 2.0 / ODbL。OSM 由来は ODbL)</li>
+      <li>道路: 国土数値情報(道路データ)N13 2024年度(国土交通省、CC BY 4.0)</li>
       <li>境界: 国勢調査2020 小地域、国土数値情報 N03</li>
       <li id="src-res"></li>
     </ul>
@@ -74,23 +75,24 @@ const AREAS = {
     res:"住居判定: 土地利用の GIS が無いため、Overture で非住宅と分かる建物を除いた残り。公園: Overture 土地利用(OpenStreetMap 由来)、国土数値情報 P13(2011)",
     notes:["樹高の観測は 2019年5月〜2020年2月。建物は 2026年10月版。","住居の判定が23区と違い、店舗や工場の一部が混ざります。23区で同じ判定に変えても、各指標の達成率の変化は1ポイント未満でした。"] },
 };
-const SHORT = [[0,"#009E73","すべて達成"],[1,"#F0E442","3 が不足"],[2,"#56B4E9","30 が不足"],[3,"#0072B2","3・30 が不足"],
-               [4,"#E69F00","300 が不足"],[5,"#D55E00","3・300 が不足"],[6,"#CC79A7","30・300 が不足"],[7,"#4D4D4D","すべて不足"]];
+const NMISS = ["すべて達成","1項目不足","2項目不足","3項目不足"];  // 添字が不足項目数
 const PCTB = [0,10,25,50,75], PCTL = ["10%未満","10〜25%","25〜50%","50〜75%","75%以上"];
 // 各指標: 広域の属性と区分、10m図の区分。goal は「ここから達成」の区分番号。濃いほど良い
 const IND = {
-  all: { name:"総合", tone:"#3e4c59", ras:"shortage", q:"何が足りないか", d:"3つのうち足りないものの組み合わせ。六角形・メッシュ・町丁目では最も多い組み合わせを表示。" },
+  all: { name:"総合", tone:"#08306b", ras:"shortage", q:"いくつ足りないか", d:"3つの指標のうち、足りない項目の数。六角形・メッシュ・町丁目では、建物で最も多い項目数を表示。",
+    colors:["#c6dbef","#6baed6","#2171b5","#08306b"], attr:"short_n", wideT:"広域: 最も多い不足項目数", wide:[...NMISS].reverse(), wideGoal:3,
+    fineT:"10m図: 不足項目数", fine:[...NMISS].reverse(), goal:3 },
   r3: { name:"3", tone:"#54278f", ras:"r3", q:"建物から木が見えるか", d:"建物のすぐ近く(30m)に、遮られない木が3本あるか。",
     colors:["#f2f0f7","#cbc9e2","#9e9ac8","#756bb1","#54278f"], attr:"pct_3", breaks:PCTB, wideT:"広域: 「3」を達成した建物の割合", wide:PCTL, wideGoal:null,
     fineT:"10m図: 30m以内の樹頂点の数", fine:["0本","1〜2本","3〜5本","6〜10本","11本以上"], goal:2 },
   r30: { name:"30", tone:"#00543f", ras:"r30", q:"街に緑があるか", d:"半径250mの地面のうち、樹冠に覆われた割合が30%あるか。",
     colors:["#e6f7f1","#b6e3d4","#66c2a4","#238b6d","#00543f"], attr:"canopy250", breaks:[0,5,10,20,30], wideT:"広域: 建物から半径250mの樹冠率(平均)", wide:["5%未満","5〜10%","10〜20%","20〜30%","30%以上"], wideGoal:4,
     fineT:"10m図: 半径250mの樹冠率", fine:["5%未満","5〜10%","10〜20%","20〜30%","30%以上"], goal:4 },
-  r300: { name:"300", tone:"#8c3d04", ras:"r300", q:"近くに公園があるか", d:"300m以内に0.5ha以上の公園があるか。",
+  r300: { name:"300", tone:"#8c3d04", ras:"r300", q:"近くに公園があるか", d:"道路で300m以内に0.5ha以上の公園があるか。",
     colors:["#fff0d9","#fdcc8a","#fc9d4f","#d95f0e","#8c3d04"], attr:"pct_300", breaks:PCTB, wideT:"広域: 「300」を達成した建物の割合", wide:PCTL, wideGoal:null,
-    fineT:"10m図: 公園までの直線距離", fine:["1000m超","500〜1000m","300〜500m","100〜300m","100m以内"], goal:3 },
+    fineT:"10m図: 公園までの道路距離", fine:["1000m超","500〜1000m","300〜500m","100〜300m","100m以内"], goal:3 },
 };
-const COMMON = ["「300」は0.5ha以上の公園で、小さな公園は数えません。距離は直線で、道路で測ると達成は下がります。",
+const COMMON = ["「300」は0.5ha以上の公園で、小さな公園は数えません。距離は道路沿いです。入口の位置が無いので、公園から30m以内の道路はすべて入口とみなしており、達成はやや高めに出ます。",
   "「3」は衛星由来の樹高から推定した樹頂点で、実際の本数とは一致しません。窓からの見え方も測っていません。",
   "10m図の「3」は建物による遮りを見ていないので、六角形・メッシュ・町丁目より達成が高く出ます。",
   "衛星由来の樹高は都市の小さな樹木を捉えきれていない可能性があり、実測との照合はまだです。特に「30」の値はそのまま結論にしないでください。",
@@ -117,7 +119,7 @@ const fineZoom = () => $("unit").value==="h3" ? 16 : 14;
 function setOpacity(){ for (const l of UNITS) map.setPaintProperty(l+"_f","fill-opacity",["step",["zoom"],0.85,fineZoom(),0]); }
 const map = new maplibregl.Map({ container:"map", center:A.center, zoom:A.zoom, minZoom:9, maxZoom:17, hash:true,
   style:{ version:8, sources:{ gsi:{ type:"raster", tiles:["https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png"], tileSize:256, maxzoom:18,
-    attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a> | 樹高: Meta/WRI CHMv2 (CC BY 4.0) | 建物・公園: Overture Maps, © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors (ODbL) | 東京都 緑のオープンデータ | 国土数値情報 P13' } },
+    attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a> | 樹高: Meta/WRI CHMv2 (CC BY 4.0) | 建物・公園: Overture Maps, © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors (ODbL) | 東京都 緑のオープンデータ | 国土数値情報 P13, N13' } },
     layers:[{ id:"gsi", type:"raster", source:"gsi", paint:{ "raster-saturation":-0.6 } }] } });
 if (innerWidth <= 600) map.setPadding({ bottom: innerHeight * 0.4 + 120 });  // スマホではパネルの上に地域が来るように
 map.addControl(new maplibregl.NavigationControl(), "top-right");
@@ -125,7 +127,7 @@ map.addControl(new maplibregl.ScaleControl(), "bottom-right");
 
 function colorExpr(){
   const I = IND[ind];
-  if (ind === "all") return ["match",["coalesce",["get","short_top"],-1],...SHORT.flatMap(s=>[s[0],s[1]]),"#e4e7eb"];
+  if (ind === "all") return ["match",["coalesce",["get",I.attr],-1],3,I.colors[0],2,I.colors[1],1,I.colors[2],0,I.colors[3],"#e4e7eb"];
   const steps = I.breaks.slice(1).flatMap((b,i)=>[b,I.colors[i+1]]);
   return ["case",["==",["coalesce",["get",I.attr],-1],-1],"#e4e7eb",["step",["get",I.attr],I.colors[0],...steps]];
 }
@@ -134,12 +136,9 @@ function legend(){
   const I = IND[ind], fine = map.getZoom() >= fineZoom();
   $("what").innerHTML = `<b>${I.q}</b>${I.d}`;
   let h = "";
-  if (ind === "all") h += `<div class="lgt">${fine?"10m図: 足りないもの":"広域: 最も多い組み合わせ"}</div>` + SHORT.map(s=>row(s[1],s[2])).join("");
-  else {
-    const labels = fine ? I.fine : I.wide, g = fine ? I.goal : I.wideGoal;
-    h += `<div class="lgt">${fine?I.fineT:I.wideT}</div>`;
-    h += labels.map((t,i)=>(i===g?`<div class="goal">↓ ここから達成</div>`:"")+row(I.colors[i],t)).join("");
-  }
+  const labels = fine ? I.fine : I.wide, g = fine ? I.goal : I.wideGoal;
+  h += `<div class="lgt">${fine?I.fineT:I.wideT}</div>`;
+  h += labels.map((t,i)=>(i===g?`<div class="goal">↓ ここから達成</div>`:"")+row(I.colors[i],t)).join("");
   if (!fine) h += row("#e4e7eb","建物5棟未満で非表示");
   h += `<p class="hint">${fine?`ズーム${fineZoom()}より引くと集計図に戻ります。`:`ズーム${fineZoom()}まで拡大すると10m図に切り替わります。`}</p>`;
   $("legend").innerHTML = h;
@@ -175,8 +174,8 @@ map.once("style.load",()=>{
       const body=(p.pct_all===undefined||p.pct_all===null)?"建物が少ないため非表示":
        `住居建物 ${p.n} 棟<br>`+line("r3",`「3」達成 ${p.pct_3}%`)+
        line("r30",`「30」達成 ${p.pct_30}%(半径250mの樹冠率 平均 ${p.canopy250}%)`)+
-       line("r300",`「300」達成 ${p.pct_300}%(公園まで 中央値 ${p.dist_med}m)`)+
-       line("all",`3つとも達成 ${p.pct_all}% / 最も多いのは ${SHORT[p.short_top][2]}`);
+       line("r300",`「300」達成 ${p.pct_300}%(公園まで道路で 中央値 ${p.dist_med}m)`)+
+       line("all",`3つとも達成 ${p.pct_all}% / 最も多いのは ${NMISS[p.short_n]}`);
       pop.setLngLat(e.lngLat).setHTML(`<b>${t}</b>${body?"<br>":""}${body}`).addTo(map); });
   }
 });
