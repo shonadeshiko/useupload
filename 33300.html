@@ -67,11 +67,7 @@
   </details>
 </div>
 <script>
-const AREAS = {
-  tokyo_kanagawa: { label:"東京都・神奈川県", center:[139.42,35.51], zoom:9.3,
-    res:"住居判定: Overture で非住宅と分かる建物を除いた残り。公園: 東京都内は東京都 緑のオープンデータ(霊園を除く)、都外は Overture 土地利用(OpenStreetMap 由来)と国土数値情報 P13(2011、神奈川県内のみ)",
-    notes:["対象は東京都(島嶼を除く)と神奈川県。樹高の観測はタイルごとに異なり、全体で 2013年12月〜2020年3月。建物は 2026年10月版。","住居の判定には店舗や工場の一部が混ざります。","公園のデータが東京都内と神奈川県で違うので、都県の間で「300」をそのまま比べないでください。"] },
-};
+const AREAS = {"kanto": {"label": "関東(1都6県)", "center": [139.6, 36.05], "zoom": 8, "res": "住居判定: Overture で非住宅と分かる建物を除いた残り。公園: 東京都内は東京都 緑のオープンデータ(霊園を除く)、都外は Overture 土地利用(OpenStreetMap 由来)と国土数値情報 P13(2011)", "notes": ["対象は関東1都6県(東京都は島嶼を除く)。樹高の観測はタイルごとに異なります。建物は 2026年10月版。", "住居の判定には店舗や工場の一部が混ざります。", "公園のデータが東京都内とほかの県で違うので、都県の間で「300」をそのまま比べないでください。"], "skip": ["h3_11"]}};
 const NMISS = ["すべて達成","1項目不足","2項目不足","3項目不足"];  // 添字が不足項目数
 const PCTB = [0,10,25,50,75], PCTL = ["10%未満","10〜25%","25〜50%","50〜75%","75%以上"];
 // 各指標: 広域の属性と区分、10m図の区分。goal は「ここから達成」の区分番号。濃いほど良い
@@ -110,12 +106,13 @@ $("tabs").innerHTML = Object.entries(IND).map(([k,v])=>`<button type="button" da
 const proto = new pmtiles.Protocol(); maplibregl.addProtocol("pmtiles", proto.tile);
 const base = new URL("33300_data/"+area+"/", location.href).href;
 // H3 は res9→10→11 をズームで切り替え、10m図は H3 ならズーム16、ほかは14から
-const UNITS = ["h3_9","h3_10","h3_11","mesh","town"];
-const RANGE = { h3_9:{maxzoom:12}, h3_10:{minzoom:12,maxzoom:13.5}, h3_11:{minzoom:13.5} };
+const SKIP = A.skip || [];  // 公開しない単位(関東の h3_11 は GitHub の1ファイル上限を超えるので、h3_10 を拡大して使う)
+const UNITS = ["h3_9","h3_10","h3_11","mesh","town"].filter(u=>!SKIP.includes(u));
+const RANGE = { h3_9:{maxzoom:12}, h3_10:SKIP.includes("h3_11")?{minzoom:12}:{minzoom:12,maxzoom:13.5}, h3_11:{minzoom:13.5} };
 const group = l => l.startsWith("h3") ? "h3" : l;
 const fineZoom = () => $("unit").value==="h3" ? 16 : 14;
 function setOpacity(){ for (const l of UNITS) map.setPaintProperty(l+"_f","fill-opacity",["step",["zoom"],0.85,fineZoom(),0]); }
-const map = new maplibregl.Map({ container:"map", center:A.center, zoom:A.zoom, minZoom:9, maxZoom:17, hash:true,
+const map = new maplibregl.Map({ container:"map", center:A.center, zoom:A.zoom, minZoom:Math.min(9,A.zoom), maxZoom:17, hash:true,
   style:{ version:8, sources:{ gsi:{ type:"raster", tiles:["https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png"], tileSize:256, maxzoom:18,
     attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a> | 樹高: Meta/WRI CHMv2 (CC BY 4.0) | 建物・公園: Overture Maps, © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors (ODbL) | 東京都 緑のオープンデータ | 国土数値情報 P13, N13' } },
     layers:[{ id:"gsi", type:"raster", source:"gsi", paint:{ "raster-saturation":-0.6 } }] } });
