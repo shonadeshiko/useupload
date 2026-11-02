@@ -68,12 +68,9 @@
 </div>
 <script>
 const AREAS = {
-  tokyo23: { label:"東京23区", center:[139.73,35.69], zoom:10.3,
-    res:"住居判定: 東京都 土地利用現況調査 令和3年度。公園: 東京都 緑のオープンデータ(霊園を除く)、都外は OpenStreetMap",
-    notes:["樹高の観測は 2019年1月〜2020年3月。建物は 2026年10月版、住居判定は 2021年度。"] },
-  kanagawa: { label:"神奈川県", center:[139.35,35.40], zoom:9.8,
-    res:"住居判定: 土地利用の GIS が無いため、Overture で非住宅と分かる建物を除いた残り。公園: Overture 土地利用(OpenStreetMap 由来)、国土数値情報 P13(2011、神奈川県内のみ)",
-    notes:["樹高の観測はタイルごとに異なり、全体で 2013年12月〜2020年3月。建物は 2026年10月版。","住居の判定が23区と違い、店舗や工場の一部が混ざります。23区で同じ判定に変えても、各指標の達成率の変化は1ポイント未満でした。","公園のデータが23区と違うので、地域の間で「300」をそのまま比べないでください。"] },
+  tokyo_kanagawa: { label:"東京都・神奈川県", center:[139.42,35.51], zoom:9.3,
+    res:"住居判定: Overture で非住宅と分かる建物を除いた残り。公園: 東京都内は東京都 緑のオープンデータ(霊園を除く)、都外は Overture 土地利用(OpenStreetMap 由来)と国土数値情報 P13(2011、神奈川県内のみ)",
+    notes:["対象は東京都(島嶼を除く)と神奈川県。樹高の観測はタイルごとに異なり、全体で 2013年12月〜2020年3月。建物は 2026年10月版。","住居の判定には店舗や工場の一部が混ざります。","公園のデータが東京都内と神奈川県で違うので、都県の間で「300」をそのまま比べないでください。"] },
 };
 const NMISS = ["すべて達成","1項目不足","2項目不足","3項目不足"];  // 添字が不足項目数
 const PCTB = [0,10,25,50,75], PCTL = ["10%未満","10〜25%","25〜50%","50〜75%","75%以上"];
@@ -99,12 +96,13 @@ const COMMON = ["「300」は0.5ha以上の公園で、小さな公園は数え�
   "10m図は住居建物の近くだけに色を付けています。建物が数棟しかない単位は、割合が0%や100%に振れやすくなります。棟数はクリックで確認できます。"];
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
-const area = AREAS[params.get("area")] ? params.get("area") : "tokyo23";
+const area = AREAS[params.get("area")] ? params.get("area") : Object.keys(AREAS)[0];
 const A = AREAS[area];
 let ind = IND[params.get("ind")] ? params.get("ind") : "all";
 
 $("area").innerHTML = Object.entries(AREAS).map(([k,v])=>`<option value="${k}"${k===area?" selected":""}>${v.label}</option>`).join("");
 $("area").addEventListener("change",e=>{ location.href = `?area=${e.target.value}&ind=${ind}`; });
+if (Object.keys(AREAS).length===1) { $("area").style.display = "none"; document.querySelector('label[for="area"]').style.display = "none"; }  // 地域が1つなら切替を出さない
 $("notes").innerHTML = [...A.notes, ...COMMON].map(t=>`<li>${t}</li>`).join("");
 $("src-res").textContent = A.res;
 $("tabs").innerHTML = Object.entries(IND).map(([k,v])=>`<button type="button" data-k="${k}">${v.name}</button>`).join("");
