@@ -106,10 +106,17 @@ $("tabs").innerHTML = Object.entries(IND).map(([k,v])=>`<button type="button" da
 const proto = new pmtiles.Protocol(); maplibregl.addProtocol("pmtiles", proto.tile);
 const base = new URL("33300_data/"+area+"/", location.href).href;
 // H3 は res9→10→11 をズームで切り替え、10m図は H3 ならズーム16、ほかは14から
-const SKIP = A.skip || [];  // 公開しない単位(関東の h3_11 は GitHub の1ファイル上限を超えるので、h3_10 を拡大して使う)
-const UNITS = ["h3_9","h3_10","h3_11","mesh","town"].filter(u=>!SKIP.includes(u));
-const RANGE = { h3_9:{maxzoom:12}, h3_10:SKIP.includes("h3_11")?{minzoom:12}:{minzoom:12,maxzoom:13.5}, h3_11:{minzoom:13.5} };
+const SKIP = A.skip || [];  // 無い単位(関東の h3_11 は GitHub の1ファイル上限を超えるので公開せず、h3_10 を拡大して使う)
+// 六角形の幅が8画素前後を保つように切り替える。数字はその解像度を使う上限のズーム
+const H3 = [["h3_7",9],["h3_8",11],["h3_9",12],["h3_10",13.5],["h3_11",null]].filter(([u])=>!SKIP.includes(u));
+const UNITS = [...H3.map(([u])=>u),"mesh","town"];
+const RANGE = {};
+H3.forEach(([u,z],i)=>{ RANGE[u]={...(i?{minzoom:H3[i-1][1]}:{}),...(z&&i<H3.length-1?{maxzoom:z}:{})}; });
+// 関東の250mメッシュは広域で1画素前後になるので、ズーム10より引いたら六角形で見せる
+const HAS_COARSE = UNITS.includes("h3_8"), MESH_MIN = 10;
+if (HAS_COARSE) RANGE.mesh = {minzoom:MESH_MIN};
 const group = l => l.startsWith("h3") ? "h3" : l;
+const shownIn = (l,u) => group(l)===u || (u==="mesh" && HAS_COARSE && (l==="h3_7"||l==="h3_8"));
 const fineZoom = () => $("unit").value==="h3" ? 16 : 14;
 function setOpacity(){ for (const l of UNITS) map.setPaintProperty(l+"_f","fill-opacity",["step",["zoom"],0.85,fineZoom(),0]); }
 const map = new maplibregl.Map({ container:"map", center:A.center, zoom:A.zoom, minZoom:Math.min(9,A.zoom), maxZoom:17, hash:true,
@@ -134,7 +141,7 @@ function legend(){
   const labels = fine ? I.fine : I.wide, g = fine ? I.goal : I.wideGoal;
   h += `<div class="lgt">${fine?I.fineT:I.wideT}</div>`;
   h += labels.map((t,i)=>(i===g?`<div class="goal">↓ ここから達成</div>`:"")+row(I.colors[i],t)).join("");
-  h += `<p class="hint">${fine?`ズーム${fineZoom()}より引くと集計図に戻ります。`:`ズーム${fineZoom()}まで拡大すると10m図に切り替わります。`}</p>`;
+  h += `<p class="hint">${fine?`ズーム${fineZoom()}より引くと集計図に戻ります。`:`ズーム${fineZoom()}まで拡大すると10m図に切り替わります。`}${HAS_COARSE&&$("unit").value==="mesh"&&map.getZoom()<MESH_MIN?`250mメッシュはズーム${MESH_MIN}から表示します。今は六角形です。`:""}</p>`;
   $("legend").innerHTML = h;
   document.querySelectorAll("#tabs button").forEach(b=>{ const on=b.dataset.k===ind; b.setAttribute("aria-pressed",on); b.style.background=on?IND[b.dataset.k].tone:""; });
 }
@@ -142,7 +149,8 @@ function apply(){
   legend();
   if (!map.getLayer("r_r300")) return;  // 読み込み前の操作は load 後の apply で反映する
   const u = $("unit").value;
-  for (const l of UNITS) { map.setLayoutProperty(l+"_f","visibility",group(l)===u?"visible":"none"); map.setPaintProperty(l+"_f","fill-color",colorExpr()); }
+  for (const l of UNITS) { map.setLayoutProperty(l+"_f","visibility",shownIn(l,u)?"visible":"none"); map.setPaintProperty(l+"_f","fill-color",colorExpr()); }
+  if (HAS_COARSE) map.setLayerZoomRange("h3_8_f",RANGE.h3_8.minzoom,u==="mesh"?MESH_MIN:RANGE.h3_8.maxzoom);
   for (const k of Object.values(IND)) map.setLayerZoomRange("r_"+k.ras,fineZoom(),24);
   setOpacity();
   for (const k of Object.values(IND)) map.setLayoutProperty("r_"+k.ras,"visibility",k.ras===IND[ind].ras?"visible":"none");
