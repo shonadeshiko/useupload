@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>都市の 3-30-300</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@3.2.1/dist/pmtiles.js"></script>
+<style>
+  :root { --ink:#1f2933; --muted:#52606d; --line:#d5dbe1; --bg:#fff; --accent:#1f2933; }
+  html, body { margin:0; height:100%; font-family:"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif; color:var(--ink); background:var(--bg); }
+  #map { position:absolute; inset:0; }
+  #panel { position:absolute; top:12px; left:12px; width:310px; max-height:calc(100% - 48px); overflow:auto; background:var(--bg); box-sizing:border-box;
+           border:1px solid var(--line); border-radius:8px; padding:14px; font-size:13px; line-height:1.55; box-shadow:0 1px 6px rgba(0,0,0,.15); }
+  h1 { font-size:16px; margin:0 0 2px; }
+  .sub { color:var(--muted); margin:0 0 10px; }
+  label { display:block; font-weight:600; margin:10px 0 3px; }
+  select { width:100%; padding:5px; font-size:13px; }
+  .tabs { display:grid; grid-template-columns:1.3fr 1fr 1fr 1fr; gap:4px; }
+  .tabs button { padding:7px 2px; font:inherit; font-weight:600; background:#f4f5f7; color:var(--ink); border:1px solid var(--line); border-radius:6px; cursor:pointer; }
+  .tabs button[aria-pressed="true"] { color:#fff; border-color:transparent; }
+  #what { margin:8px 0 0; }
+  #what b { display:block; }
+  .lgt { font-weight:600; margin:10px 0 4px; }
+  .lg { display:flex; align-items:center; gap:7px; margin:2px 0; }
+  .sw { width:16px; height:12px; border:1px solid rgba(0,0,0,.25); flex:none; }
+  .goal { border-top:2px solid var(--ink); margin:3px 0 1px; padding-top:1px; font-size:11.5px; font-weight:600; }
+  .hint { color:var(--muted); font-size:12px; margin:5px 0 0; }
+  details { margin-top:10px; border-top:1px solid var(--line); padding-top:8px; }
+  summary { cursor:pointer; font-weight:600; }
+  ul { margin:6px 0 0; padding-left:17px; }
+  .maplibregl-popup-content { font-size:12.5px; line-height:1.6; }
+  .now { font-weight:700; }
+  @media (max-width:600px){ #panel{ left:8px; right:8px; width:auto; top:auto; bottom:120px; max-height:40%; } }  /* 帰属表示と縮尺に重ねない */
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="panel">
+  <h1>都市の 3-30-300</h1>
+  <p class="sub">住まいから見た、樹木と公園の足りなさ</p>
+  <label for="area">地域</label>
+  <select id="area"></select>
+  <label>指標</label>
+  <div class="tabs" id="tabs"></div>
+  <p id="what"></p>
+  <div id="legend"></div>
+  <label for="unit">広域の集計単位</label>
+  <select id="unit"><option value="h3">六角形(H3、拡大すると細かくなる)</option><option value="mesh">250mメッシュ</option><option value="town">町丁目</option></select>
+  <details open>
+    <summary>読むときの注意</summary>
+    <ul id="notes"></ul>
+  </details>
+  <details>
+    <summary>定義と出典</summary>
+    <ul>
+      <li>3: 建物外周から30m以内に、他の建物に遮られない樹頂点が3本以上</li>
+      <li>30: 建物から半径250mの樹冠率(樹高3m以上)が30%以上</li>
+      <li id="src-300">300: 建物から道路で300m以内に0.5ha以上の公園(高速・有料・建設中の道路を除く)</li>
+      <li>樹高: Meta / WRI CHMv2(CC BY 4.0)</li>
+      <li>建物: Overture Maps(由来により CDLA Permissive 2.0 / ODbL。OSM 由来は ODbL)</li>
+      <li>道路: 国土数値情報(道路データ)N13 2024年度(国土交通省、CC BY 4.0)</li>
+      <li>境界: 国勢調査2020 小地域、国土数値情報 N03</li>
+      <li id="src-res"></li>
+    </ul>
+  </details>
+</div>
+<script>
+const AREAS = {"jp": {"label": "全国", "center": [137.5, 37.0], "zoom": 5, "term": "公園・緑地", "units": "japan", "res": "住居判定: Overture で非住宅と分かる建物を除いた残り。公園・緑地: Overture 土地利用(OpenStreetMap 由来)の公園系、国土数値情報 P13(2011)、JAXA 土地被覆 2024 と CHMv2 から作った緑の塊", "notes": ["対象は全国(所属未定地と北方領土を除く)。樹高の観測はタイルごとに異なります。建物は 2026年10月版。", "住居の判定には店舗や工場の一部が混ざります。OpenStreetMap の整備状況は地域で差があります。", "「300」の緑地には、私有地や立ち入れない緑地も混ざります。特に郊外や山沿いでは、達成が実際より高く出ます。"], "parts": {"h3_10": 2, "town": 2}, "no_fine": true}};
+const NMISS = ["すべて達成","1項目不足","2項目不足","3項目不足"];  // 添字が不足項目数
+const PCTB = [0,10,25,50,75], PCTL = ["10%未満","10〜25%","25〜50%","50〜75%","75%以上"];
+// 各指標: 広域の属性と区分、10m図の区分。goal は「ここから達成」の区分番号。濃いほど良い
+const IND = {
+  all: { name:"総合", tone:"#00441b", ras:"shortage", q:"いくつ足りないか", d:"3つの指標のうち、足りない項目の数。六角形・メッシュ・町丁目では、建物で最も多い項目数を表示。",
+    colors:["#c7e9c0","#74c476","#238b45","#00441b"], attr:"short_n", wideT:"広域: 最も多い不足項目数", wide:[...NMISS].reverse(), wideGoal:3,
+    fineT:"10m図: 不足項目数", fine:[...NMISS].reverse(), goal:3 },
+  r3: { name:"3", tone:"#54278f", ras:"r3", q:"建物から木が見えるか", d:"建物のすぐ近く(30m)に、遮られない木が3本あるか。",
+    colors:["#f2f0f7","#cbc9e2","#9e9ac8","#756bb1","#54278f"], attr:"pct_3", breaks:PCTB, wideT:"広域: 「3」を達成した建物の割合", wide:PCTL, wideGoal:null,
+    fineT:"10m図: 30m以内の樹頂点の数", fine:["0本","1〜2本","3〜5本","6〜10本","11本以上"], goal:2 },
+  r30: { name:"30", tone:"#08519c", ras:"r30", q:"街に緑があるか", d:"半径250mの地面のうち、樹冠に覆われた割合が30%あるか。",
+    colors:["#eff3ff","#bdd7e7","#6baed6","#3182bd","#08519c"], attr:"canopy250", breaks:[0,5,10,20,30], wideT:"広域: 建物から半径250mの樹冠率(平均)", wide:["5%未満","5〜10%","10〜20%","20〜30%","30%以上"], wideGoal:4,
+    fineT:"10m図: 半径250mの樹冠率", fine:["5%未満","5〜10%","10〜20%","20〜30%","30%以上"], goal:4 },
+  r300: { name:"300", tone:"#8c3d04", ras:"r300", q:"近くに公園があるか", d:"道路で300m以内に0.5ha以上の公園があるか。",
+    colors:["#fff0d9","#fdcc8a","#fc9d4f","#d95f0e","#8c3d04"], attr:"pct_300", breaks:PCTB, wideT:"広域: 「300」を達成した建物の割合", wide:PCTL, wideGoal:null,
+    fineT:"10m図: 公園までの道路距離", fine:["1000m超","500〜1000m","300〜500m","100〜300m","100m以内"], goal:3 },
+};
+const COMMON = ["「300」は0.5ha以上の公園で、小さな公園は数えません。距離は道路沿いです。入口の位置が無いので、公園から30m以内の道路はすべて入口とみなしており、達成はやや高めに出ます。",
+  "「3」は衛星由来の樹高から推定した樹頂点で、実際の本数とは一致しません。窓からの見え方も測っていません。",
+  "10m図の「3」は建物による遮りを見ていないので、六角形・メッシュ・町丁目より達成が高く出ます。",
+  "衛星由来の樹高は都市の小さな樹木を捉えきれていない可能性があり、実測との照合はまだです。特に「30」の値はそのまま結論にしないでください。",
+  "10m図は住居建物の近くだけに色を付けています。建物が数棟しかない単位は、割合が0%や100%に振れやすくなります。棟数はクリックで確認できます。"];
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const area = AREAS[params.get("area")] ? params.get("area") : Object.keys(AREAS)[0];
+const A = AREAS[area];
+if (A.term) {  // 「300」の対象を公園と緑地にした版(D-584)
+  const r = IND.r300;
+  r.q = "近くに緑地があるか"; r.d = "道路で300m以内に0.5ha以上の公園や緑地があるか。"; r.fineT = "10m図: 公園・緑地までの道路距離";
+  COMMON[0] = "「300」は0.5ha以上の公園と緑地です。緑地は土地被覆と樹高から機械的に作ったもので、ゴルフ場、墓地、農地、学校など利用できないと分かる土地は除きましたが、私有地や立ち入れない場所も混ざります。距離は道路沿いで、緑地から30m以内の道路を入口とみなします。";
+  document.querySelector(".sub").textContent = "住まいから見た、樹木と緑地の足りなさ";
+  $("src-300").textContent = "300: 建物から道路で300m以内に0.5ha以上の公園・緑地(高速・有料・建設中の道路を除く)";
+}
+let ind = IND[params.get("ind")] ? params.get("ind") : "all";
+
+$("area").innerHTML = Object.entries(AREAS).map(([k,v])=>`<option value="${k}"${k===area?" selected":""}>${v.label}</option>`).join("");
+$("area").addEventListener("change",e=>{ location.href = `?area=${e.target.value}&ind=${ind}`; });
+if (Object.keys(AREAS).length===1) { $("area").style.display = "none"; document.querySelector('label[for="area"]').style.display = "none"; }  // 地域が1つなら切替を出さない
+if (A.no_fine) {  // 10m図についての注意を外し、少数棟の注意だけ残す
+  COMMON.splice(2,1);
+  COMMON[COMMON.length-1] = "建物が数棟しかない単位は、割合が0%や100%に振れやすくなります。棟数はクリックで確認できます。";
+}
+$("notes").innerHTML = [...A.notes, ...COMMON].map(t=>`<li>${t}</li>`).join("");
+$("src-res").textContent = A.res;
+$("tabs").innerHTML = Object.entries(IND).map(([k,v])=>`<button type="button" data-k="${k}">${v.name}</button>`).join("");
+
+const proto = new pmtiles.Protocol(); maplibregl.addProtocol("pmtiles", proto.tile);
+const base = new URL("33300_data/"+area+"/", location.href).href;
+// H3 は res9→10→11 をズームで切り替え、10m図は H3 ならズーム16、ほかは14から
+const SKIP = A.skip || [];  // 無い単位(関東の h3_11 は GitHub の1ファイル上限を超えるので公開せず、h3_10 を拡大して使う)
+// 六角形の幅が8画素前後を保つように切り替える。数字はその解像度を使う上限のズーム
+const JP = A.units==="japan";  // 全国は六角形を res5 から、メッシュを 1km と 500m で持つ(250m は公開しない)
+const H3 = (JP ? [["h3_5",6],["h3_6",8],["h3_7",9],["h3_8",10],["h3_9",12],["h3_10",null]] : [["h3_7",9],["h3_8",11],["h3_9",12],["h3_10",13.5],["h3_11",null]]).filter(([u])=>!SKIP.includes(u));
+const UNITS = [...H3.map(([u])=>u),...(JP?["mesh1km","mesh500"]:["mesh"]),"town"];
+const RANGE = {};
+H3.forEach(([u,z],i)=>{ RANGE[u]={...(i?{minzoom:H3[i-1][1]}:{}),...(z&&i<H3.length-1?{maxzoom:z}:{})}; });
+// 広域ではメッシュが1画素前後になるので、メッシュの最小ズームより引いたら六角形で見せる
+const COARSE = JP ? ["h3_5","h3_6"] : ["h3_7","h3_8"], LAST_COARSE = COARSE[1];
+const HAS_COARSE = UNITS.includes(LAST_COARSE), MESH_MIN = JP ? 7 : 10;
+if (JP) { RANGE.mesh1km = {minzoom:MESH_MIN,maxzoom:10}; RANGE.mesh500 = {minzoom:10}; $("unit").querySelector('option[value="mesh"]').textContent = "メッシュ(1km、拡大すると500m)"; }
+else if (HAS_COARSE) RANGE.mesh = {minzoom:MESH_MIN};
+const MESH_NAME = {mesh:"250m",mesh1km:"1km",mesh500:"500m"};
+const group = l => l.startsWith("h3") ? "h3" : l.startsWith("mesh") ? "mesh" : l;
+const shownIn = (l,u) => group(l)===u || (u==="mesh" && HAS_COARSE && COARSE.includes(l));
+const fineZoom = () => $("unit").value==="h3" ? 16 : 14;
+// GitHub の1ファイル上限を超える層は地域ごとのファイルに分けてある(A.parts、05k_split)。1つの層を分けたファイルの数だけの図層で描く
+const PARTS = A.parts || {};
+// 全国版は公開の容量(1サイト1GB)に収めるため10m図を載せない(A.no_fine、D-604)。拡大しても集計図のまま見せる
+const FINE = !A.no_fine;
+const files = l => PARTS[l] ? Array.from({length:PARTS[l]},(_,i)=>`${l}_${i+1}`) : [l];
+const LIDS = {};  // 層の名前 → 地図の図層の id
+const each = (id,f) => (LIDS[id]||[]).forEach(f);
+function setOpacity(){ for (const l of UNITS) each(l+"_f",i=>map.setPaintProperty(i,"fill-opacity",FINE?["step",["zoom"],0.85,fineZoom(),0]:0.85)); }
+const map = new maplibregl.Map({ container:"map", center:A.center, zoom:A.zoom, minZoom:Math.min(9,A.zoom), maxZoom:17, hash:true,
+  style:{ version:8, sources:{ gsi:{ type:"raster", tiles:["https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png"], tileSize:256, maxzoom:18,
+    attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a> | 樹高: Meta/WRI CHMv2 (CC BY 4.0) | 建物・公園: Overture Maps, © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors (ODbL) | '+(A.term?'JAXA 土地被覆 2024':'東京都 緑のオープンデータ')+' | 国土数値情報 P13, N13' } },
+    layers:[{ id:"gsi", type:"raster", source:"gsi", paint:{ "raster-saturation":-0.6 } }] } });
+if (innerWidth <= 600) map.setPadding({ bottom: innerHeight * 0.4 + 120 });  // スマホではパネルの上に地域が来るように
+map.addControl(new maplibregl.NavigationControl(), "top-right");
+map.addControl(new maplibregl.ScaleControl(), "bottom-right");
+
+function colorExpr(){
+  const I = IND[ind];
+  if (ind === "all") return ["match",["coalesce",["get",I.attr],-1],3,I.colors[0],2,I.colors[1],1,I.colors[2],0,I.colors[3],"#e4e7eb"];
+  const steps = I.breaks.slice(1).flatMap((b,i)=>[b,I.colors[i+1]]);
+  return ["case",["==",["coalesce",["get",I.attr],-1],-1],"#e4e7eb",["step",["get",I.attr],I.colors[0],...steps]];
+}
+const row = (c,t) => `<div class="lg"><span class="sw" style="background:${c}"></span>${t}</div>`;
+function legend(){
+  const I = IND[ind], fine = FINE && map.getZoom() >= fineZoom();
+  $("what").innerHTML = `<b>${I.q}</b>${I.d}`;
+  let h = "";
+  const labels = fine ? I.fine : I.wide, g = fine ? I.goal : I.wideGoal;
+  h += `<div class="lgt">${fine?I.fineT:I.wideT}</div>`;
+  h += labels.map((t,i)=>(i===g?`<div class="goal">↓ ここから達成</div>`:"")+row(I.colors[i],t)).join("");
+  h += `<p class="hint">${!FINE?"この版には10m図がありません。拡大しても六角形・メッシュ・町丁目のままです。":fine?`ズーム${fineZoom()}より引くと集計図に戻ります。`:`ズーム${fineZoom()}まで拡大すると10m図に切り替わります。`}${HAS_COARSE&&$("unit").value==="mesh"&&map.getZoom()<MESH_MIN?`${JP?"":"250m"}メッシュはズーム${MESH_MIN}から表示します。今は六角形です。`:""}</p>`;
+  $("legend").innerHTML = h;
+  document.querySelectorAll("#tabs button").forEach(b=>{ const on=b.dataset.k===ind; b.setAttribute("aria-pressed",on); b.style.background=on?IND[b.dataset.k].tone:""; });
+}
+function apply(){
+  legend();
+  if (!LIDS.town_f) return;  // 読み込み前の操作は load 後の apply で反映する
+  const u = $("unit").value;
+  for (const l of UNITS) each(l+"_f",i=>{ map.setLayoutProperty(i,"visibility",shownIn(l,u)?"visible":"none"); map.setPaintProperty(i,"fill-color",colorExpr()); });
+  if (HAS_COARSE) each(LAST_COARSE+"_f",i=>map.setLayerZoomRange(i,RANGE[LAST_COARSE].minzoom,u==="mesh"?MESH_MIN:RANGE[LAST_COARSE].maxzoom));
+  for (const k of Object.values(IND)) each("r_"+k.ras,i=>map.setLayerZoomRange(i,fineZoom(),24));
+  setOpacity();
+  for (const k of Object.values(IND)) each("r_"+k.ras,i=>map.setLayoutProperty(i,"visibility",k.ras===IND[ind].ras?"visible":"none"));
+}
+// load は背景地図のタイルを待つので、背景が遅くても評価の図を出せるよう style.load で追加する
+map.once("style.load",()=>{
+  for (const l of UNITS) {
+    LIDS[l+"_f"] = files(l).map(f=>{
+      map.addSource(f,{type:"vector",url:"pmtiles://"+base+f+".pmtiles"});
+      // ズーム14以上は透明にしてクリックだけ受ける
+      map.addLayer({id:f+"_f",type:"fill",source:f,"source-layer":l,...(RANGE[l]||{}),paint:{"fill-color":"#ccc","fill-opacity":0.85,
+        ...(group(l)==="h3"?{"fill-antialias":false}:{"fill-outline-color":"rgba(60,60,60,.25)"})}});
+      return f+"_f"; });
+  }
+  if (FINE) for (const k of Object.values(IND)) {
+    LIDS["r_"+k.ras] = files(k.ras).map(f=>{
+      map.addSource("r"+f,{type:"raster",url:"pmtiles://"+base+f+".pmtiles",tileSize:256});
+      map.addLayer({id:"r_"+f,type:"raster",source:"r"+f,minzoom:14,paint:{"raster-resampling":"nearest","raster-opacity":0.8,"raster-fade-duration":0}});
+      return "r_"+f; });
+  }
+  apply();
+  const pop = new maplibregl.Popup({closeButton:true,closeOnClick:true});
+  const line = (k,t) => `<div class="${ind===k?"now":""}">${t}</div>`;
+  for (const l of UNITS) {
+    each(l+"_f",id=>map.on("click",id,e=>{ const p=e.features[0].properties;
+      const t=l==="town"?`${p.CITY_NAME||""} ${p.S_NAME||""}`:group(l)==="mesh"?`${MESH_NAME[l]}メッシュ ${p.mesh}`:"六角形(H3)";
+      const body=`住居建物 ${p.n} 棟<br>`+line("r3",`「3」達成 ${p.pct_3}%`)+
+       line("r30",`「30」達成 ${p.pct_30}%(半径250mの樹冠率 平均 ${p.canopy250}%)`)+
+       line("r300",`「300」達成 ${p.pct_300}%(${A.term||"公園"}まで道路で 中央値 ${p.dist_med}m)`)+
+       line("all",`3つとも達成 ${p.pct_all}% / 最も多いのは ${NMISS[p.short_n]}`);
+      pop.setLngLat(e.lngLat).setHTML(`<b>${t}</b>${body?"<br>":""}${body}`).addTo(map); }));
+  }
+});
+map.on("zoomend",legend);
+$("tabs").addEventListener("click",e=>{ const k=e.target.dataset&&e.target.dataset.k; if(k){ ind=k; apply(); } });
+$("unit").addEventListener("change",apply);
+legend();
+</script>
+</body>
+</html>
